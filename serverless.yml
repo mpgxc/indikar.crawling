@@ -1,0 +1,177 @@
+service: ice-breaker
+
+frameworkVersion: "4"
+
+# ── Per-stage parameter overrides (useful for local dry-runs) ──
+# To package locally without AWS credentials:
+#   OFFLINE=true npx sls package --stage dev
+params:
+  default:
+    offline: ${env:OFFLINE, false}
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 29
+  logRetentionInDays: 7
+
+  environment:
+    STAGE: ${self:provider.stage}
+    SQS_QUEUE_URL: !Ref IceBreakerQueue
+    LLM_MODEL: ${ssm:/ice-breaker/${self:provider.stage}/LLM_MODEL, 'gpt-4o'}
+    SEARCH_PROVIDER: ${ssm:/ice-breaker/${self:provider.stage}/SEARCH_PROVIDER, 'serpapi'}
+    OPENAI_API_KEY: ${ssm:/ice-breaker/${self:provider.stage}/OPENAI_API_KEY, ''}
+    PROXYCURL_API_KEY: ${ssm:/ice-breaker/${self:provider.stage}/PROXYCURL_API_KEY, ''}
+    SERPAPI_KEY: ${ssm:/ice-breaker/${self:provider.stage}/SERPAPI_KEY, ''}
+    GOOGLE_API_KEY: ${ssm:/ice-breaker/${self:provider.stage}/GOOGLE_API_KEY, ''}
+    GOOGLE_CSE_ID: ${ssm:/ice-breaker/${self:provider.stage}/GOOGLE_CSE_ID, ''}
+    API_KEY: ${ssm:/ice-breaker/${self:provider.stage}/API_KEY, ''}
+    UPSTASH_REDIS_REST_URL: ${ssm:/ice-breaker/${self:provider.stage}/UPSTASH_REDIS_REST_URL, ''}
+    UPSTASH_REDIS_REST_TOKEN: ${ssm:/ice-breaker/${self:provider.stage}/UPSTASH_REDIS_REST_TOKEN, ''}
+
+  iam:
+    role:
+      statements:
+        # SQS — HTTP handler sends, Worker receives/deletes
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - !GetAtt IceBreakerQueue.Arn
+            - !GetAtt IceBreakerDLQ.Arn
+        # SSM — read parameters at deploy time (framework resolves them)
+        # Runtime reads are not needed since values are injected as env vars
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            - ssm:GetParametersByPath
+          Resource:
+            - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/ice-breaker/${self:provider.stage}/*"
+
+plugins: []
+
+custom:
+  # Serverless Framework v4 has built-in esbuild + TypeScript support.
+  # Configuration is done via the top-level 'build' key below.
+
+functions:
+  # ── HTTP trigger: accepts POST /ice-breaker, validates key, enqueues job ──
+  iceBreakerHttp:
+    handler: src/handlers/inbound-handler.handler
+    timeout: 29
+    memorySize: 256
+    description: "Ice Breaker HTTP entry point — validates API key and enqueues job"
+    events:
+      - httpApi:
+          path: /ice-breaker
+          method: POST
+
+  # ── SQS worker: runs the LLM pipeline and POSTs result to webhook ──
+  iceBreakerWorker:
+    handler: src/handlers/consumer-handler.handler
+    timeout: 60
+    memorySize: 512
+    description: "Ice Breaker worker — processes jobs from SQS and delivers via webhook"
+    events:
+      - sqs:
+          arn: !GetAtt IceBreakerQueue.Arn
+          batchSize: 1
+          functionResponseType: ReportBatchItemFailures
+
+resources:
+  Resources:
+    # ── Dead Letter Queue ──
+    IceBreakerDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ice-breaker-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600 # 14 days in seconds
+
+    # ── Main processing queue ──
+    IceBreakerQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ice-breaker-queue-${self:provider.stage}
+        # Must be >= Lambda timeout (60s) * 2 to avoid duplicate processing
+        VisibilityTimeout: 180
+        MessageRetentionPeriod: 86400 # 1 day
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt IceBreakerDLQ.Arn
+          maxReceiveCount: 3
+
+    # ── CloudWatch alarm: messages landing in DLQ ──
+    DLQAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ice-breaker-dlq-messages-${self:provider.stage}
+        AlarmDescription: "Messages are appearing in the Ice Breaker DLQ"
+        Namespace: AWS/SQS
+        MetricName: ApproximateNumberOfMessagesVisible
+        Dimensions:
+          - Name: QueueName
+            Value: !GetAtt IceBreakerDLQ.QueueName
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        TreatMissingData: notBreaching
+
+    # ── CloudWatch alarm: worker Lambda errors ──
+    WorkerErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ice-breaker-worker-errors-${self:provider.stage}
+        AlarmDescription: "Ice Breaker worker Lambda is throwing errors"
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref IceBreakerWorkerLambdaFunction
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 3
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        TreatMissingData: notBreaching
+
+  Outputs:
+    IceBreakerQueueUrl:
+      Description: "URL of the Ice Breaker processing queue"
+      Value: !Ref IceBreakerQueue
+      Export:
+        Name: ice-breaker-queue-url-${self:provider.stage}
+
+    IceBreakerQueueArn:
+      Description: "ARN of the Ice Breaker processing queue"
+      Value: !GetAtt IceBreakerQueue.Arn
+      Export:
+        Name: ice-breaker-queue-arn-${self:provider.stage}
+
+    IceBreakerDLQUrl:
+      Description: "URL of the Ice Breaker Dead Letter Queue"
+      Value: !Ref IceBreakerDLQ
+      Export:
+        Name: ice-breaker-dlq-url-${self:provider.stage}
+
+    HttpApiEndpoint:
+      Description: "HTTP API endpoint URL"
+      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/ice-breaker"
+
+# ── Built-in esbuild configuration (Serverless Framework v4) ──
+build:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    target: "node22"
+    platform: "node"
+    external:
+      - "@aws-sdk/client-sqs"

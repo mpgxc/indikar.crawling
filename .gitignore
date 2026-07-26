@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.serverless/
+coverage/
+.env
+*.js.map
