@@ -1,4 +1,4 @@
-import { generateText, isStepCount } from "ai";
+import { generateText, isStepCount, Output } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 
@@ -21,24 +21,16 @@ const summarySchema = z.object({
     .describe("Two interesting facts about the person"),
 });
 
-export interface ResearchProfileDeps {
-  searchAdapter: SearchGateway;
-  proxycurlAdapter: ProxycurlAdapter;
-  model: string;
-  openaiApiKey: string;
-}
-
 export class ResearchProfile {
-  private readonly searchAdapter: SearchGateway;
-  private readonly proxycurlAdapter: ProxycurlAdapter;
-  private readonly modelId: string;
   private readonly openai: ReturnType<typeof createOpenAI>;
 
-  constructor(deps: ResearchProfileDeps) {
-    this.searchAdapter = deps.searchAdapter;
-    this.proxycurlAdapter = deps.proxycurlAdapter;
-    this.modelId = deps.model;
-    this.openai = createOpenAI({ apiKey: deps.openaiApiKey });
+  constructor(
+    private readonly searchAdapter: SearchGateway,
+    private readonly proxycurlAdapter: ProxycurlAdapter,
+    private readonly modelId: string,
+    openaiApiKey: string
+  ) {
+    this.openai = createOpenAI({ apiKey: openaiApiKey });
   }
 
   async execute(input: ResearchProfileInput): Promise<ResearchProfileOutput> {
@@ -79,11 +71,10 @@ export class ResearchProfile {
 
     childLogger.info("Generating ice-breaker summary");
 
-    const { object } = await generateText({
+    const { output } = await generateText({
       model: this.openai(this.modelId),
-      system:
-        "You are a helpful assistant that creates concise professional summaries. " +
-        "Respond ONLY with valid JSON matching the exact schema provided.",
+      output: Output.object({ schema: summarySchema }),
+      system: "You are a helpful assistant that creates concise professional summaries.",
       prompt: `
 Given the following LinkedIn profile information, create:
 1. A short professional summary (2-3 sentences)
@@ -91,26 +82,11 @@ Given the following LinkedIn profile information, create:
 
 Profile data:
 ${JSON.stringify(profileData, null, 2)}
-
-Respond with JSON in this exact format:
-{
-  "summary": "<short summary>",
-  "facts": ["<fact 1>", "<fact 2>"]
-}
       `.trim(),
-    }).then(({ text }) => {
-      const jsonMatch =
-        text.match(/```(?:json)?\s*([\s\S]*?)```/) ??
-        text.match(/(\{[\s\S]*\})/);
-
-      const jsonStr = jsonMatch ? jsonMatch[1] : text;
-
-      const parsed = summarySchema.parse(JSON.parse(jsonStr ?? "{}"));
-      return { object: parsed };
     });
 
     childLogger.info("Ice-breaker generated successfully");
 
-    return object;
+    return output;
   }
 }

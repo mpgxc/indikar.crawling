@@ -1,6 +1,6 @@
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { randomUUID } from "crypto";
-import type { TaskVault } from "../adapters/vault/vault";
+import type { TaskStore } from "../adapters/store/task-store";
 import { logger } from "../shared/logger";
 
 export interface DispatchTaskInput {
@@ -14,7 +14,7 @@ export interface DispatchTaskOutput {
 
 export class DispatchTask {
   constructor(
-    private readonly vault: TaskVault,
+    private readonly taskStore: TaskStore,
     private readonly sqsClient: SQSClient,
     private readonly queueUrl: string
   ) {}
@@ -22,7 +22,7 @@ export class DispatchTask {
   async execute(input: DispatchTaskInput): Promise<DispatchTaskOutput> {
     const taskId = randomUUID();
 
-    await this.vault.create({
+    await this.taskStore.create({
       taskId,
       name: input.name,
       webhookUrl: input.webhookUrl,

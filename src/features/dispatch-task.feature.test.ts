@@ -8,15 +8,15 @@ vi.mock("crypto", () => ({
   randomUUID: vi.fn(() => "uuid-task-123"),
 }));
 
-import type { TaskVault } from "../adapters/vault/vault";
+import type { TaskStore } from "../adapters/store/task-store";
 import { DispatchTask } from "./dispatch-task.feature";
 
-const mockVault = {
+const mockTaskStore = {
   create: mockCreate,
-} as never as TaskVault;
+} as never as TaskStore;
 
 const makeFeature = () =>
-  new DispatchTask(mockVault, mockSqsClient, "https://sqs.queue.url");
+  new DispatchTask(mockTaskStore, mockSqsClient, "https://sqs.queue.url");
 
 describe("DispatchTask", () => {
   beforeEach(() => vi.clearAllMocks());

@@ -9,11 +9,11 @@ POST /ice-breaker
       │
       ▼
 HTTP Lambda ──── validates x-api-key
-      │           creates job (Upstash Redis)
+      │           creates task (Upstash Redis)
       │           publishes to SQS
       │
       ▼
- 202 + jobId
+ 202 + taskId
       
 SQS Queue ──────► Worker Lambda
                       │
@@ -24,7 +24,7 @@ SQS Queue ──────► Worker Lambda
                       │
                       ├─ 3. LLM summarization → { summary, facts[] }
                       │
-                      ├─ updates job status (Upstash Redis, TTL 24h)
+                      ├─ updates task status (Upstash Redis, TTL 24h)
                       │
                       └─ POST result → webhookUrl
 ```
@@ -49,30 +49,32 @@ SQS Queue ──────► Worker Lambda
 
 ```
 src/
-  functions/
-    http-handler.ts       # POST /ice-breaker endpoint
-    worker-handler.ts     # SQS consumer
-  core/
-    domain/job.ts         # Job types and status
-    ports/search.port.ts  # SearchPort interface
-    use-cases/
-      ice-breaker.use-case.ts  # Orchestrates LLM + scraping
+  handlers/
+    http-handler.ts        # POST /ice-breaker endpoint
+    worker-handler.ts      # SQS consumer
+    container.ts           # composition root — builds adapters + use-cases once
+  features/
+    domain.ts               # Task, TaskStatus, TaskResult types
+    search-gateway.ts       # SearchGateway port
+    dispatch-task.feature.ts    # create task + enqueue SQS message
+    process-task.feature.ts     # run pipeline, update task, POST webhook
+    research-profile.feature.ts # LLM pipeline: find URL, scrape, summarize
   adapters/
     search/
       serpapi.adapter.ts
       google.adapter.ts
-      search.factory.ts   # Selects adapter via SEARCH_PROVIDER
+      search.factory.ts    # Selects adapter via SEARCH_PROVIDER
     linkedin/
       proxycurl.adapter.ts
-    redis/
-      upstash-job.repository.ts
+    store/
+      task-store.ts        # Upstash Redis-backed task store
   shared/
-    config.ts             # Zod-validated env vars
-    logger.ts             # pino logger
-    auth.ts               # x-api-key validation
+    config.ts              # Zod-validated env vars
+    logger.ts               # pino logger
+    auth.ts                # x-api-key validation
 scripts/
-  setup-ssm.sh            # Bootstrap SSM parameters
-  e2e.ts                  # End-to-end smoke test
+  setup-ssm.sh             # Bootstrap SSM parameters
+  e2e.ts                   # End-to-end smoke test
 ```
 
 ## Prerequisites
@@ -159,9 +161,9 @@ Content-Type: application/json
 **Response `202 Accepted`:**
 ```json
 {
-  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "taskId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "PENDING",
-  "message": "Job accepted. Result will be posted to webhookUrl."
+  "message": "Task accepted. Result will be posted to webhookUrl."
 }
 ```
 
@@ -180,7 +182,7 @@ When processing completes, a `POST` is made to your `webhookUrl`:
 **Success payload:**
 ```json
 {
-  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "taskId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "DONE",
   "result": {
     "summary": "Experienced entrepreneur and engineer with a track record of disrupting multiple industries.",
@@ -195,7 +197,7 @@ When processing completes, a `POST` is made to your `webhookUrl`:
 **Failure payload:**
 ```json
 {
-  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "taskId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "FAILED",
   "error": "Proxycurl request failed: 429 Too Many Requests"
 }

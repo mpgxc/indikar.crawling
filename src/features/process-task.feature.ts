@@ -1,4 +1,4 @@
-import type { TaskVault } from "../adapters/vault/vault";
+import type { TaskStore } from "../adapters/store/task-store";
 import type { ResearchProfile } from "./research-profile.feature";
 import { logger } from "../shared/logger";
 
@@ -10,7 +10,7 @@ export interface ProcessTaskInput {
 
 export class ProcessTask {
   constructor(
-    private readonly vault: TaskVault,
+    private readonly taskStore: TaskStore,
     private readonly researchProfile: ResearchProfile
   ) {}
 
@@ -20,12 +20,12 @@ export class ProcessTask {
 
     recordLogger.info("Processing task");
 
-    await this.vault.update(taskId, { status: "PROCESSING" });
+    await this.taskStore.update(taskId, { status: "PROCESSING" });
 
     try {
       const result = await this.researchProfile.execute({ name });
 
-      await this.vault.update(taskId, {
+      await this.taskStore.update(taskId, {
         status: "DONE",
         result,
       });
@@ -46,7 +46,7 @@ export class ProcessTask {
 
       recordLogger.info("Webhook delivered successfully");
     } catch (err) {
-      await this.vault
+      await this.taskStore
         .update(taskId, {
           status: "FAILED",
           error: err instanceof Error ? err.message : "Unknown error",

@@ -6,12 +6,12 @@ const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 import { ProcessTask } from "./process-task.feature";
-import type { TaskVault } from "../adapters/vault/vault";
+import type { TaskStore } from "../adapters/store/task-store";
 import type { ResearchProfile } from "./research-profile.feature";
 
-const mockVault = {
+const mockTaskStore = {
   update: mockUpdate,
-} as never as TaskVault;
+} as never as TaskStore;
 
 const mockResearchProfile = {
   execute: mockExecute,
@@ -23,7 +23,7 @@ const SUCCESS_RESULT = {
 };
 
 const makeFeature = () =>
-  new ProcessTask(mockVault, mockResearchProfile);
+  new ProcessTask(mockTaskStore, mockResearchProfile);
 
 const INPUT = {
   taskId: "task-123",

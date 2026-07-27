@@ -62,9 +62,9 @@ custom:
   # Configuration is done via the top-level 'build' key below.
 
 functions:
-  # ── HTTP trigger: accepts POST /ice-breaker, validates key, enqueues job ──
+  # ── HTTP trigger: accepts POST /ice-breaker, validates key, enqueues task ──
   iceBreakerHttp:
-    handler: src/handlers/inbound-handler.handler
+    handler: src/handlers/http-handler.handler
     timeout: 29
     memorySize: 256
     description: "Ice Breaker HTTP entry point — validates API key and enqueues job"
@@ -75,7 +75,7 @@ functions:
 
   # ── SQS worker: runs the LLM pipeline and POSTs result to webhook ──
   iceBreakerWorker:
-    handler: src/handlers/consumer-handler.handler
+    handler: src/handlers/worker-handler.handler
     timeout: 60
     memorySize: 512
     description: "Ice Breaker worker — processes jobs from SQS and delivers via webhook"

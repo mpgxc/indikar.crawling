@@ -37,14 +37,14 @@ interface IceBreakerResult {
 }
 
 interface WebhookPayload {
-  jobId: string;
+  taskId: string;
   status: "DONE" | "FAILED";
   result?: IceBreakerResult;
   error?: string;
 }
 
 interface EnqueueResponse {
-  jobId: string;
+  taskId: string;
   status: string;
   message: string;
 }
@@ -130,7 +130,7 @@ async function main(): Promise<void> {
     })
   );
 
-  // ── 2. Enqueue the job ──
+  // ── 2. Enqueue the task ──
   log(`POST ${BASE_URL}/ice-breaker`);
 
   const enqueueRes = await fetch(`${BASE_URL}/ice-breaker`, {
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
   }
 
   const enqueueBody = (await enqueueRes.json()) as EnqueueResponse;
-  log(`Job enqueued`, enqueueBody);
+  log(`Task enqueued`, enqueueBody);
 
   // ── 3. Wait for webhook callback ──
   log(`Waiting up to ${TIMEOUT_MS / 1000}s for webhook callback...`);
@@ -168,7 +168,7 @@ async function main(): Promise<void> {
   log(`Webhook received`, payload);
 
   if (payload.status !== "DONE") {
-    throw new Error(`Job failed: ${payload.error ?? "unknown error"}`);
+    throw new Error(`Task failed: ${payload.error ?? "unknown error"}`);
   }
 
   if (!payload.result?.summary) {

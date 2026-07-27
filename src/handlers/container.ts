@@ -1,9 +1,9 @@
 import { SQSClient } from "@aws-sdk/client-sqs";
 
 import { ProxycurlAdapter } from "../adapters/linkedin/proxycurl.adapter";
-import { createSearchAdapter } from "../adapters/search/search.module";
+import { createSearchAdapter } from "../adapters/search/search.factory";
 import { config } from "../shared/config";
-import { TaskVault } from "../adapters/vault/vault";
+import { TaskStore } from "../adapters/store/task-store";
 import { ResearchProfile } from "../features/research-profile.feature";
 import { DispatchTask } from "../features/dispatch-task.feature";
 import { ProcessTask } from "../features/process-task.feature";
@@ -11,34 +11,34 @@ import { ProcessTask } from "../features/process-task.feature";
 function buildContainer() {
   const searchAdapter = createSearchAdapter(config);
   const proxycurlAdapter = new ProxycurlAdapter(config.PROXYCURL_API_KEY);
-  const vault = TaskVault.create(
+  const taskStore = TaskStore.create(
     config.UPSTASH_REDIS_REST_URL,
     config.UPSTASH_REDIS_REST_TOKEN
   );
 
-  const researchProfile = new ResearchProfile({
+  const researchProfile = new ResearchProfile(
     searchAdapter,
     proxycurlAdapter,
-    model: config.LLM_MODEL,
-    openaiApiKey: config.OPENAI_API_KEY,
-  });
+    config.LLM_MODEL,
+    config.OPENAI_API_KEY
+  );
 
   const sqsClient = new SQSClient({});
 
   const dispatchTask = new DispatchTask(
-    vault,
+    taskStore,
     sqsClient,
     config.SQS_QUEUE_URL
   );
 
   const processTask = new ProcessTask(
-    vault,
+    taskStore,
     researchProfile
   );
 
   return {
     researchProfile,
-    vault,
+    taskStore,
     dispatchTask,
     processTask,
   };

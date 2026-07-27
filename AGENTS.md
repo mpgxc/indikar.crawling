@@ -2,12 +2,13 @@
 
 ## Architecture
 
-- **Hexagonal (ports & adapters)**: `src/core/` (domain + use-case) → `src/adapters/` (external services) → `src/functions/` (Lambda handlers)
-- **Two entrypoints** in `src/functions/`:
-  - `http-handler.ts` — API Gateway HTTP API v2, POST `/ice-breaker`, validates `x-api-key`, persists job to Upstash Redis, enqueues to SQS
+- **Hexagonal (ports & adapters)**: `src/features/` (domain + use-cases) → `src/adapters/` (external services) → `src/handlers/` (Lambda entrypoints + composition root)
+- **Two entrypoints** in `src/handlers/`:
+  - `http-handler.ts` — API Gateway HTTP API v2, POST `/ice-breaker`, validates `x-api-key`, persists task to Upstash Redis, enqueues to SQS
   - `worker-handler.ts` — SQS consumer (batchSize:1), runs LLM pipeline, POSTs result to webhook URL
-- **Pipeline**: find LinkedIn URL (LLM agent + search API) → scrape profile (Proxycurl) → generate summary (OpenAI `generateText`)
-- **Job state** in Upstash Redis with 24h TTL (`ice-breaker:job:{id}`)
+- `container.ts` is the composition root — builds every adapter/use-case once at module load, exported as a `container` singleton both handlers import from
+- **Pipeline**: find LinkedIn URL (LLM agent + search API) → scrape profile (Proxycurl) → generate summary (`generateText` with `output: Output.object({schema})`)
+- **Task state** in Upstash Redis with 24h TTL (`ice-breaker:task:{taskId}`), via `TaskStore` (`src/adapters/store/task-store.ts`)
 
 ## Commands
 
@@ -39,7 +40,7 @@ npm run e2e            # npx ts-node scripts/e2e.ts (requires BASE_URL + API_KEY
 
 ## Serverless v4 quirks
 
-- Uses Serverless Framework v4 **built-in esbuild** (configured via top-level `build` key), NOT the `serverless-esbuild` plugin (listed but unused).
+- Uses Serverless Framework v4 **built-in esbuild** (configured via top-level `build` key) — no `serverless-esbuild` plugin needed.
 - `@aws-sdk/client-sqs` is externalized from the bundle.
 - Lambda timeouts: HTTP handler 29s, Worker 60s. SQS VisibilityTimeout: 180s.
 - Queue uses `ReportBatchItemFailures` — return `{ batchItemFailures: [{ itemIdentifier }] }` for failed messages.

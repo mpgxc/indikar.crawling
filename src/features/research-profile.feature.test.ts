@@ -5,6 +5,7 @@ const mockGenerateText = vi.fn();
 vi.mock("ai", () => ({
   generateText: (...args: never[]) => mockGenerateText(...args),
   isStepCount: () => () => false,
+  Output: { object: (opts: unknown) => opts },
 }));
 
 vi.mock("@ai-sdk/openai", () => ({
@@ -40,12 +41,7 @@ const EXPECTED_RESULT = {
 };
 
 const makeFeature = () =>
-  new ResearchProfile({
-    searchAdapter: mockSearch,
-    proxycurlAdapter: mockProxycurl,
-    model: "gpt-4o",
-    openaiApiKey: "sk-test",
-  });
+  new ResearchProfile(mockSearch, mockProxycurl, "gpt-4o", "sk-test");
 
 const mockAgentCall = (linkedInUrl: string) => {
   mockGenerateText.mockImplementationOnce(
@@ -60,7 +56,7 @@ const mockAgentCall = (linkedInUrl: string) => {
 
 const mockSummarizationCall = (result: typeof EXPECTED_RESULT) => {
   mockGenerateText.mockImplementationOnce(async () => ({
-    text: JSON.stringify(result),
+    output: result,
   }));
 };
 
@@ -118,19 +114,6 @@ describe("ResearchProfile", () => {
     );
   });
 
-  it("parses JSON wrapped in markdown code blocks", async () => {
-    mockAgentCall("https://www.linkedin.com/in/john-doe");
-    mockGenerateText.mockImplementationOnce(async () => ({
-      text: `\`\`\`json\n${JSON.stringify(EXPECTED_RESULT)}\n\`\`\``,
-    }));
-
-    const feature = makeFeature();
-    const result = await feature.execute({ name: "John Doe" });
-
-    expect(result.summary).toBe(EXPECTED_RESULT.summary);
-    expect(result.facts).toHaveLength(2);
-  });
-
   it("calls generateText twice", async () => {
     mockAgentCall("https://www.linkedin.com/in/john-doe");
     mockSummarizationCall(EXPECTED_RESULT);
@@ -160,23 +143,13 @@ describe("ResearchProfile", () => {
     await expect(feature.execute({ name: "John Doe" })).rejects.toThrow("Proxycurl 401");
   });
 
-  it("throws when the summarization JSON is invalid", async () => {
+  it("throws when the summarization call fails", async () => {
     mockAgentCall("https://www.linkedin.com/in/john-doe");
-    mockGenerateText.mockImplementationOnce(async () => ({
-      text: "not valid json at all",
-    }));
+    mockGenerateText.mockRejectedValueOnce(new Error("schema validation failed"));
 
     const feature = makeFeature();
-    await expect(feature.execute({ name: "John Doe" })).rejects.toThrow();
-  });
-
-  it("throws when the summarization result is missing required fields", async () => {
-    mockAgentCall("https://www.linkedin.com/in/john-doe");
-    mockGenerateText.mockImplementationOnce(async () => ({
-      text: JSON.stringify({ summary: "Only summary, no facts" }),
-    }));
-
-    const feature = makeFeature();
-    await expect(feature.execute({ name: "John Doe" })).rejects.toThrow();
+    await expect(feature.execute({ name: "John Doe" })).rejects.toThrow(
+      "schema validation failed"
+    );
   });
 });

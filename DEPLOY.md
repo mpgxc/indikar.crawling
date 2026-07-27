@@ -240,9 +240,9 @@ Resposta esperada (`202 Accepted`):
 
 ```json
 {
-  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "taskId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "PENDING",
-  "message": "Job accepted. Result will be posted to webhookUrl."
+  "message": "Task accepted. Result will be posted to webhookUrl."
 }
 ```
 

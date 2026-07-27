@@ -5,16 +5,16 @@ import { logger } from "../../shared/logger";
 const TASK_TTL_SECONDS = 86_400;
 const KEY_PREFIX = "ice-breaker:task";
 
-export class TaskVault {
+export class TaskStore {
   private readonly redis: Redis;
 
   constructor(redis: Redis) {
     this.redis = redis;
   }
 
-  static create(restUrl: string, restToken: string): TaskVault {
+  static create(restUrl: string, restToken: string): TaskStore {
     const redis = new Redis({ url: restUrl, token: restToken });
-    return new TaskVault(redis);
+    return new TaskStore(redis);
   }
 
   private key(taskId: string): string {
